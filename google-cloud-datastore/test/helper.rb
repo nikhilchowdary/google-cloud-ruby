@@ -36,6 +36,8 @@ class MockDatastore < Minitest::Spec
   let(:default_database) { "" }
   let(:database_sec) { "my-secondary-project" }
   let(:credentials) { OpenStruct.new }
+  let(:default_options) { Gapic::CallOptions.new(metadata: { "x-goog-is-transaction" => "false" }) }
+  let(:transaction_options) { Gapic::CallOptions.new(metadata: { "x-goog-is-transaction" => "true" }) }
   let(:dataset) { Google::Cloud::Datastore::Dataset.new(Google::Cloud::Datastore::Service.new(project, credentials, default_database)) }
   let(:secondary_dataset) { Google::Cloud::Datastore::Dataset.new(Google::Cloud::Datastore::Service.new(project, credentials, database_sec)) }
 

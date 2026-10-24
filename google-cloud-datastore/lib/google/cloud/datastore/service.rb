@@ -59,14 +59,25 @@ module Google
         # Allocate IDs for incomplete keys.
         # (This is useful for referencing an entity before it is inserted.)
         def allocate_ids *incomplete_keys
-          service.allocate_ids project_id: project, database_id: database, keys: incomplete_keys
+          request = {
+            project_id:  project,
+            database_id: database,
+            keys:        incomplete_keys
+          }
+          service.allocate_ids request, call_options
         end
 
         ##
         # Look up entities by keys.
         def lookup *keys, consistency: nil, transaction: nil, read_time: nil
           read_options = generate_read_options consistency, transaction, read_time
-          service.lookup project_id: project, database_id: database, keys: keys, read_options: read_options
+          request = {
+            project_id:   project,
+            database_id:  database,
+            keys:         keys,
+            read_options: read_options
+          }
+          service.lookup request, call_options(transaction: transaction)
         end
 
         # Query for entities.
@@ -88,13 +99,16 @@ module Google
             )
           end
 
-          service.run_query project_id: project,
-                            database_id: database,
-                            partition_id: partition_id,
-                            read_options: read_options,
-                            query: query,
-                            gql_query: gql_query,
-                            explain_options: explain_options
+          request = {
+            project_id:      project,
+            database_id:     database,
+            partition_id:    partition_id,
+            read_options:    read_options,
+            query:           query,
+            gql_query:       gql_query,
+            explain_options: explain_options
+          }
+          service.run_query request, call_options(transaction: transaction)
         end
 
         ## Query for aggregates
@@ -119,12 +133,15 @@ module Google
             )
           end
 
-          service.run_aggregation_query project_id: project,
-                                        partition_id: partition_id,
-                                        read_options: read_options,
-                                        aggregation_query: query,
-                                        gql_query: gql_query,
-                                        explain_options: explain_options
+          request = {
+            project_id:        project,
+            partition_id:      partition_id,
+            read_options:      read_options,
+            aggregation_query: query,
+            gql_query:         gql_query,
+            explain_options:   explain_options
+          }
+          service.run_aggregation_query request, call_options(transaction: transaction)
         end
 
         ##
@@ -144,7 +161,12 @@ module Google
             )
             transaction_options.read_write = rw
           end
-          service.begin_transaction project_id: project, database_id: database, transaction_options: transaction_options
+          request = {
+            project_id:          project,
+            database_id:         database,
+            transaction_options: transaction_options
+          }
+          service.begin_transaction request, call_options(transaction: true)
         end
 
         ##
@@ -152,14 +174,25 @@ module Google
         # some entities.
         def commit mutations, transaction: nil
           mode = transaction.nil? ? :NON_TRANSACTIONAL : :TRANSACTIONAL
-          service.commit project_id: project, database_id: database, mode: mode,
-                         mutations: mutations, transaction: transaction
+          request = {
+            project_id:  project,
+            database_id: database,
+            mode:        mode,
+            mutations:   mutations,
+            transaction: transaction
+          }
+          service.commit request, call_options(transaction: transaction)
         end
 
         ##
         # Roll back a transaction.
         def rollback transaction
-          service.rollback project_id: project, database_id: database, transaction: transaction
+          request = {
+            project_id:  project,
+            database_id: database,
+            transaction: transaction
+          }
+          service.rollback request, call_options(transaction: transaction)
         end
 
         def inspect
@@ -167,6 +200,16 @@ module Google
         end
 
         protected
+
+        def default_headers transaction: nil
+          {
+            "x-goog-is-transaction" => (!transaction.nil?).to_s
+          }
+        end
+
+        def call_options transaction: nil
+          Gapic::CallOptions.new metadata: default_headers(transaction: transaction)
+        end
 
         def generate_read_options consistency, transaction, read_time
           if consistency == :eventual

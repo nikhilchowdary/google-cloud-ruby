@@ -74,23 +74,23 @@ describe Google::Cloud::Datastore::Dataset, :all_with_explain, :mock_datastore d
   before do
     dataset.service.mocked_service = Minitest::Mock.new
     dataset.service.mocked_service.expect :run_query, run_query_res_1,
-      project_id: project,
+      [{ project_id: project,
       partition_id: nil,
       read_options: nil,
       query: query_1,
       gql_query: nil,
       database_id: default_database,
       explain_options: Google::Cloud::Datastore::V1::ExplainOptions.new(analyze: true)
-
+ }, default_options]
     dataset.service.mocked_service.expect :run_query, run_query_res_2,
-      project_id: project,
+      [{ project_id: project,
       partition_id: nil,
       read_options: nil,
       query:  query_2,
       gql_query: nil,
       database_id: default_database,
       explain_options: Google::Cloud::Datastore::V1::ExplainOptions.new(analyze: true)
-  end
+ }, default_options]  end
 
   after do
     dataset.service.mocked_service.verify
