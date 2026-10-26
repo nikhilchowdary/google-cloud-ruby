@@ -28,6 +28,11 @@ describe Google::Cloud::Firestore::Client, :transaction, :mock_firestore do
       )
     )
   end
+  let(:read_only_default_transaction_opt) do
+    Google::Cloud::Firestore::V1::TransactionOptions.new(
+      read_only: Google::Cloud::Firestore::V1::TransactionOptions::ReadOnly.new
+    )
+  end
   let(:read_time) { Time.now }
   let :query_results_enum do
     [
@@ -130,6 +135,127 @@ describe Google::Cloud::Firestore::Client, :transaction, :mock_firestore do
     firestore.read_only_transaction read_time: read_time do |tx|
       results_enum = tx.get firestore.col(:users).select(:name)
       assert_results_enum results_enum
+    end
+  end
+
+  it "runs a simple query with read only transaction without read_time" do
+    expected_query = Google::Cloud::Firestore::V1::StructuredQuery.new(
+      select: Google::Cloud::Firestore::V1::StructuredQuery::Projection.new(
+        fields: [Google::Cloud::Firestore::V1::StructuredQuery::FieldReference.new(field_path: "name")]),
+      from: [Google::Cloud::Firestore::V1::StructuredQuery::CollectionSelector.new(collection_id: "users", all_descendants: false)]
+    )
+    firestore_mock.expect :run_query, query_results_enum, run_query_args(expected_query, new_transaction: read_only_default_transaction_opt)
+
+    firestore.read_only_transaction do |tx|
+      results_enum = tx.get firestore.col(:users).select(:name)
+      assert_results_enum results_enum
+    end
+  end
+
+  it "runs multiple queries with read only transaction" do
+    first_query = Google::Cloud::Firestore::V1::StructuredQuery.new(
+      select: Google::Cloud::Firestore::V1::StructuredQuery::Projection.new(
+        fields: [Google::Cloud::Firestore::V1::StructuredQuery::FieldReference.new(field_path: "name")]),
+      from: [Google::Cloud::Firestore::V1::StructuredQuery::CollectionSelector.new(collection_id: "users", all_descendants: false)]
+    )
+    second_query = Google::Cloud::Firestore::V1::StructuredQuery.new(
+      select: Google::Cloud::Firestore::V1::StructuredQuery::Projection.new(
+        fields: [Google::Cloud::Firestore::V1::StructuredQuery::FieldReference.new(field_path: "name")]),
+      from: [Google::Cloud::Firestore::V1::StructuredQuery::CollectionSelector.new(collection_id: "users", all_descendants: false)],
+      limit: Google::Protobuf::Int32Value.new(value: 42)
+    )
+    firestore_mock.expect :run_query, query_results_enum, run_query_args(first_query, new_transaction: read_only_transaction_opt)
+    firestore_mock.expect :run_query, query_results_enum, run_query_args(second_query, transaction: transaction_id)
+
+    firestore.read_only_transaction read_time: read_time do |tx|
+      results_enum = tx.get firestore.col(:users).select(:name)
+      assert_results_enum results_enum
+
+      results_enum = tx.get firestore.col(:users).select(:name).limit(42)
+      assert_results_enum results_enum
+    end
+  end
+
+  it "gets documents with read only transaction" do
+    batch_get_resp_1 = [
+      Google::Cloud::Firestore::V1::BatchGetDocumentsResponse.new(
+        transaction: transaction_id,
+        read_time: Google::Cloud::Firestore::Convert.time_to_timestamp(read_time),
+        found: Google::Cloud::Firestore::V1::Document.new(
+          name: "projects/#{project}/databases/(default)/documents/users/alice",
+          fields: { "name" => Google::Cloud::Firestore::V1::Value.new(string_value: "Alice") },
+          create_time: Google::Cloud::Firestore::Convert.time_to_timestamp(read_time),
+          update_time: Google::Cloud::Firestore::Convert.time_to_timestamp(read_time)
+        )
+      )
+    ].to_enum
+    batch_get_resp_2 = [
+      Google::Cloud::Firestore::V1::BatchGetDocumentsResponse.new(
+        read_time: Google::Cloud::Firestore::Convert.time_to_timestamp(read_time),
+        found: Google::Cloud::Firestore::V1::Document.new(
+          name: "projects/#{project}/databases/(default)/documents/users/bob",
+          fields: { "name" => Google::Cloud::Firestore::V1::Value.new(string_value: "Bob") },
+          create_time: Google::Cloud::Firestore::Convert.time_to_timestamp(read_time),
+          update_time: Google::Cloud::Firestore::Convert.time_to_timestamp(read_time)
+        )
+      )
+    ].to_enum
+    firestore_mock.expect :batch_get_documents, batch_get_resp_1, batch_get_documents_args(documents: ["projects/#{project}/databases/(default)/documents/users/alice"], new_transaction: read_only_transaction_opt)
+    firestore_mock.expect :batch_get_documents, batch_get_resp_2, batch_get_documents_args(documents: ["projects/#{project}/databases/(default)/documents/users/bob"], transaction: transaction_id)
+
+    firestore.read_only_transaction read_time: read_time do |tx|
+      doc1 = tx.get "users/alice"
+      _(doc1.data).must_equal({ name: "Alice" })
+
+      doc2 = tx.get "users/bob"
+      _(doc2.data).must_equal({ name: "Bob" })
+    end
+  end
+
+  it "runs aggregate queries with read only transaction" do
+    structured_agg_query = Google::Cloud::Firestore::V1::StructuredAggregationQuery.new(
+      structured_query: Google::Cloud::Firestore::V1::StructuredQuery.new(
+        from: [Google::Cloud::Firestore::V1::StructuredQuery::CollectionSelector.new(collection_id: "users", all_descendants: false)]
+      ),
+      aggregations: [
+        Google::Cloud::Firestore::V1::StructuredAggregationQuery::Aggregation.new(
+          count: Google::Cloud::Firestore::V1::StructuredAggregationQuery::Aggregation::Count.new,
+          alias: "count"
+        )
+      ]
+    )
+    first_query = Google::Cloud::Firestore::V1::RunAggregationQueryRequest.new(
+      parent: documents_path,
+      structured_aggregation_query: structured_agg_query,
+      new_transaction: read_only_transaction_opt
+    )
+    second_query = Google::Cloud::Firestore::V1::RunAggregationQueryRequest.new(
+      parent: documents_path,
+      structured_aggregation_query: structured_agg_query,
+      transaction: transaction_id
+    )
+    agg_response = [
+      Google::Cloud::Firestore::V1::RunAggregationQueryResponse.new(
+        transaction: transaction_id,
+        result: Google::Cloud::Firestore::V1::AggregationResult.new(
+          aggregate_fields: {
+            "count": Google::Cloud::Firestore::V1::Value.new(integer_value: 2)
+          }
+        )
+      )
+    ].to_enum
+    firestore_mock.expect :run_aggregation_query, agg_response, [first_query, transaction_options]
+    firestore_mock.expect :run_aggregation_query, agg_response, [second_query, transaction_options]
+
+    firestore.read_only_transaction read_time: read_time do |tx|
+      aq = firestore.col(:users).aggregate_query.add_count
+      results = tx.get_aggregate(aq).to_a
+      _(results.count).must_equal 1
+      _(results.first.get("count")).must_equal 2
+
+      results = tx.get_aggregate(aq).to_a
+      _(results.count).must_equal 1
+      _(results.first.get("count")).must_equal 2
     end
   end
 
